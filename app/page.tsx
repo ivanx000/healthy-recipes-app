@@ -1,103 +1,181 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
+
+interface Message {
+  type: "user" | "ai";
+  text: string;
+  image?: string; // optional image for AI messages
+}
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [prompt, setPrompt] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [elapsedTime, setElapsedTime] = useState(0);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
+  // Timer for loading
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (loading) {
+      interval = setInterval(() => setElapsedTime((prev) => prev + 1), 1000);
+    } else {
+      setElapsedTime(0);
+    }
+    return () => clearInterval(interval);
+  }, [loading]);
+
+  const handleSubmit = async (e: React.FormEvent | React.KeyboardEvent) => {
+    if ("key" in e && e.key !== "Enter") return;
+    e.preventDefault();
+    if (!prompt.trim()) return;
+
+    const userMessage: Message = { type: "user", text: prompt };
+    setMessages((prev) => [...prev, userMessage]);
+    setLoading(true);
+    setPrompt("");
+    setError(null);
+
+    try {
+      const res = await fetch("/api/recipe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: userMessage.text }),
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        setError(data.error);
+      } else {
+        const recipeText = Array.isArray(data.recipe) ? data.recipe.join("\n") : data.recipe;
+        const lines = recipeText.split("\n").filter(Boolean);
+
+        // Add AI message with empty text
+        const aiMessage: Message = { type: "ai", text: "" };
+        setMessages((prev) => [...prev, aiMessage]);
+
+        // Typing effect
+        for (let i = 0; i < lines.length; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          setMessages((prev) =>
+            prev.map((msg, idx) =>
+              idx === prev.length - 1 ? { ...msg, text: prev[idx].text + lines[i] + "\n" } : msg
+            )
+          );
+        }
+
+        // Attach image to the last AI message
+        if (data.image) {
+          setMessages((prev) =>
+            prev.map((msg, idx) =>
+              idx === prev.length - 1 ? { ...msg, image: data.image } : msg
+            )
+          );
+        }
+      }
+    } catch (err: any) {
+      setError(err.message || "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-900 text-gray-100 flex flex-col items-center px-4 py-6">
+      {/* Initial center content */}
+      <div
+        className={`flex flex-col items-center justify-center transition-all duration-500 ${
+          messages.length ? "h-0 overflow-hidden" : "flex-grow -mt-10"
+        }`}
+      >
+        <header className="text-center w-full max-w-2xl mb-6">
+          <h1 className="font-bold text-4xl">What recipe would you like to make?</h1>
+        </header>
+
+        <form onSubmit={handleSubmit} className="w-full max-w-2xl">
+          <div className="relative w-full">
+            <input
+              type="text"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={handleSubmit}
+              placeholder="Enter your recipe prompt..."
+              className="w-full pr-12 p-3 rounded-full bg-gray-800 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-white"
             />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            <button
+              type="submit"
+              className="absolute right-1 top-1/2 transform -translate-y-1/2 bg-white text-gray-900 w-10 h-10 rounded-full flex items-center justify-center hover:bg-gray-200"
+            >
+              ➤
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Title at top after messages */}
+      <header
+        className={`text-center w-full max-w-2xl transition-all duration-500 ${
+          messages.length ? "mb-4" : "h-0 overflow-hidden"
+        }`}
+      >
+        <h1 className="font-bold text-2xl">What recipe would you like to make?</h1>
+      </header>
+
+      {/* Chat / Messages */}
+      <main
+        className={`w-full flex flex-col gap-4 overflow-auto transition-all duration-500 ${
+          messages.length ? "flex-grow mb-4" : "h-0 overflow-hidden"
+        }`}
+      >
+        {messages.map((msg, i) => (
+          <div
+            key={i}
+            className={`p-4 rounded-xl break-words w-full max-w-2xl ${
+              msg.type === "user" ? "bg-gray-700 self-end text-white" : "bg-gray-800 self-start text-white"
+            }`}
           >
-            Read our docs
-          </a>
-        </div>
+            <ReactMarkdown>{msg.text}</ReactMarkdown>
+            {msg.image && (
+              <div className="mt-4">
+                <img src={msg.image} alt="Generated dish" className="rounded-md shadow-md w-full" />
+              </div>
+            )}
+          </div>
+        ))}
+
+        {loading && (
+          <div className="p-4 rounded-xl w-full max-w-2xl bg-gray-800 self-start text-gray-300">
+            AI is typing{'.'.repeat((elapsedTime % 3) + 1)} (≈ {elapsedTime}s)
+          </div>
+        )}
+
+        {error && <p className="text-red-500">{error}</p>}
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+
+      {/* Input at bottom after messages */}
+      <form
+        onSubmit={handleSubmit}
+        className={`w-full max-w-2xl transition-all duration-500 ${messages.length ? "mt-auto" : "h-0 overflow-hidden"}`}
+      >
+        <div className="relative w-full">
+          <input
+            type="text"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={handleSubmit}
+            placeholder="Enter your recipe prompt..."
+            className="w-full pr-12 p-3 rounded-full bg-gray-800 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-white"
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+          <button
+            type="submit"
+            className="absolute right-1 top-1/2 transform -translate-y-1/2 bg-white text-gray-900 w-10 h-10 rounded-full flex items-center justify-center hover:bg-gray-200"
+          >
+            ➤
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
